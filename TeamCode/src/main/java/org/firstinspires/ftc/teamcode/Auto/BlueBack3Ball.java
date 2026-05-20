@@ -11,7 +11,6 @@ import com.acmerobotics.roadrunner.MinVelConstraint;
 import com.acmerobotics.roadrunner.Pose2d;
 import com.acmerobotics.roadrunner.Vector2d;
 import com.acmerobotics.roadrunner.ftc.Actions;
-import com.qualcomm.hardware.dfrobot.HuskyLens;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
@@ -19,6 +18,7 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.MecanumDrive;
+import org.firstinspires.ftc.teamcode.Teleop.PoseStorage;
 
 import java.util.Arrays;
 
@@ -28,9 +28,7 @@ public class BlueBack3Ball extends LinearOpMode {
     private DcMotor intake;
     private DcMotor spindle;
     private DcMotorEx launcherLeft, launcherRight;
-    private HuskyLens camera;
 
-    HuskyLens Camera;
 
     private static final int SPINDLE_OPEN   = -130;
     private static final int SPINDLE_1BALL  = -225;
@@ -87,8 +85,6 @@ public class BlueBack3Ball extends LinearOpMode {
         spindle.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         spindle.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        camera = hardwareMap.get(HuskyLens.class, "huskylens");
-        camera.selectAlgorithm(HuskyLens.Algorithm.TAG_RECOGNITION);
 
         //endregion
 
@@ -134,6 +130,8 @@ public class BlueBack3Ball extends LinearOpMode {
                         .strafeToLinearHeading(new Vector2d(-20,20),Math.toRadians(180))
                         .build()
         );
+        drive.updatePoseEstimate();
+        PoseStorage.currentPose = drive.localizer.getPose();
     }
 
     public static class Intake implements Action {
@@ -197,6 +195,8 @@ public class BlueBack3Ball extends LinearOpMode {
         }
     }
 
+
+
     public static class PrimeLaunchers implements Action {
         DcMotorEx LaunchLeft;
         DcMotorEx LaunchRight;
@@ -218,59 +218,6 @@ public class BlueBack3Ball extends LinearOpMode {
 
 
 
-    public static class TagResult {
-        public volatile int id = 0;          // 0 = not found yet
-        public volatile boolean found = false;
-    }
-
-    public static class DetectAprilTag implements Action {
-
-        private final HuskyLens camera;
-        private final TagResult out;
-        private final double timeoutSec;
-
-        private ElapsedTime timer;
-
-        public DetectAprilTag(HuskyLens camera, TagResult out, double timeoutSec) {
-            this.camera = camera;
-            this.out = out;
-            this.timeoutSec = timeoutSec;
-        }
-
-        @Override
-        public boolean run(@NonNull TelemetryPacket packet) {
-
-            if (timer == null) timer = new ElapsedTime();
-
-            HuskyLens.Block[] blocks = camera.blocks();
-
-            for (HuskyLens.Block b : blocks) {
-
-                // Only accept IDs 1–3
-                if (b.id >= 1 && b.id <= 3) {
-                    out.id = b.id;
-                    out.found = true;
-
-                    packet.put("tag/found", true);
-                    packet.put("tag/id", out.id);
-
-                    return false;
-                }
-            }
-
-            // Optional timeout fallback
-            if (timer.seconds() >= timeoutSec) {
-                out.id = 1;          // default fallback
-                out.found = false;
-
-                packet.put("tag/timeout", true);
-                return false;
-            }
-
-            packet.put("tag/found", false);
-            return true; // keep checking
-        }
-    }
 
 
 

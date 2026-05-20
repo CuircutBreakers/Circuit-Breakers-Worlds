@@ -2,8 +2,8 @@ package org.firstinspires.ftc.teamcode.Teleop;
 
 import android.graphics.Color;
 
-import com.acmerobotics.roadrunner.Pose2d;
 import com.qualcomm.hardware.limelightvision.LLResult;
+import com.qualcomm.hardware.limelightvision.LLResultTypes;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
@@ -14,10 +14,10 @@ import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
 import com.qualcomm.robotcore.hardware.NormalizedRGBA;
 
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
-import org.firstinspires.ftc.teamcode.MecanumDrive;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose3D;
 
-@TeleOp(name = "Snail Bot Red", group = "TeleOp")
-public class SnailBotRed extends LinearOpMode {
+@TeleOp(name = "Snail Bot Red Test", group = "TeleOp")
+public class SnailBotRedTest extends LinearOpMode {
 
     private DcMotor frontLeft, frontRight, backLeft, backRight;
     private DcMotor intake;
@@ -35,10 +35,17 @@ public class SnailBotRed extends LinearOpMode {
     private int launcherDirection = 1;
 
     private static final double AIM_TARGET_TX = 0.0;
-    private static final double FAR_AIM_TARGET_TX = -2.5;
     private static final double AIM_DEADBAND_DEG = 1.0;
     private static final double AIM_KP = 0.025;
     private static final double AUTO_AIM_TRIGGER_DEADBAND = 0.05;
+
+    // Tune this. If compensation is backwards, make it negative.
+    private static final double TAG_RELATIVE_AIM_GAIN = 1.0;
+
+    private double robotXFromTag = 0.0;
+    private double robotYFromTag = 0.0;
+    private double tagRelativeAimOffsetDeg = 0.0;
+    private boolean hasTagRelativePose = false;
 
     private static final double A1 = 0.5;
     private static final double A2 = 1.2;
@@ -109,16 +116,6 @@ public class SnailBotRed extends LinearOpMode {
     private double leftVelOut = 0.0;
     private double rightVelOut = 0.0;
 
-    private double headingErrorDeg = 0.0;
-    private double goalDistance = 0.0;
-
-    private static final double GOAL_AIM_KP = 0.020;
-    private static final double MAX_AUTO_TURN = 0.35;
-
-    private MecanumDrive drive;
-
-    // Persistent RR pose
-
     @Override
     public void runOpMode() throws InterruptedException {
         initHardware();
@@ -130,13 +127,10 @@ public class SnailBotRed extends LinearOpMode {
 
         while (opModeIsActive()) {
 
-            drive.updatePoseEstimate();
-
             LLResult limelightResult = getLimelightResult();
             double targetArea = getTargetArea(limelightResult);
 
-
-            calculateGoal();
+            updateTagRelativeAimData(limelightResult);
 
             handleDrive(limelightResult);
 
@@ -150,7 +144,6 @@ public class SnailBotRed extends LinearOpMode {
 
             idle();
         }
-        PoseStorage.currentPose = drive.localizer.getPose();
     }
 
     private void initHardware() {
@@ -189,11 +182,6 @@ public class SnailBotRed extends LinearOpMode {
         limelight = hardwareMap.get(Limelight3A.class, "limelight");
         limelight.pipelineSwitch(2);
         limelight.start();
-
-        drive = new MecanumDrive(
-                hardwareMap,
-                PoseStorage.currentPose
-        );
     }
 
     private LLResult getLimelightResult() {
@@ -209,6 +197,32 @@ public class SnailBotRed extends LinearOpMode {
     private double getTargetArea(LLResult result) {
         if (result == null) return -1.0;
         return result.getTa();
+    }
+
+    private void updateTagRelativeAimData(LLResult result) {
+        hasTagRelativePose = false;
+        robotXFromTag = 0.0;
+        robotYFromTag = 0.0;
+        tagRelativeAimOffsetDeg = 0.0;
+
+        if (result == null) return;
+        if (result.getFiducialResults().isEmpty()) return;
+
+        LLResultTypes.FiducialResult tag = result.getFiducialResults().get(0);
+
+        // ROBOT position relative to the APRILTAG
+        Pose3D robotPoseRelativeToTag = tag.getRobotPoseTargetSpace();
+
+        robotXFromTag = robotPoseRelativeToTag.getPosition().x;
+        robotYFromTag = robotPoseRelativeToTag.getPosition().y;
+
+        if (Math.abs(robotYFromTag) > 0.001) {
+            tagRelativeAimOffsetDeg =
+                    Math.toDegrees(Math.atan2(robotXFromTag, robotYFromTag))
+                            * TAG_RELATIVE_AIM_GAIN;
+
+            hasTagRelativePose = true;
+        }
     }
 
     private double pickVelocityFromTargetArea(double targetArea) {
@@ -230,45 +244,52 @@ public class SnailBotRed extends LinearOpMode {
 
         return Math.max(0, baseVelocity + launchVelocityTrim);
     }
+
     private double getAutoAimCorrection(LLResult result) {
+        if (result == null) return 0.0;
 
-        double error = -headingErrorDeg;
+        double targetArea = result.getTa();
+        double targetTx = AIM_TARGET_TX;
 
-        // Deadband
-        if (Math.abs(error) < AIM_DEADBAND_DEG) {
+        boolean farZone = targetArea >= 0 && targetArea < A1;
+
+        // Do NOT apply X/Y compensation in the far zone.
+        if (!farZone && hasTagRelativePose) {
+            targetTx += tagRelativeAimOffsetDeg;
+        }
+
+        double txError = result.getTx() - targetTx;
+
+        if (Math.abs(txError) < AIM_DEADBAND_DEG) {
             return 0.0;
         }
 
-        // Full speed if error is huge
-        if (Math.abs(error) > 100) {
-
-            if (error > 0) {
-                return 1.0;
-            } else {
-                return -1.0;
-            }
-        }
-
-        // Normal proportional control
-        double turnPower = error * GOAL_AIM_KP;
-
-        // Clamp
-        if (turnPower > MAX_AUTO_TURN) {
-            turnPower = MAX_AUTO_TURN;
-        }
-
-        if (turnPower < -MAX_AUTO_TURN) {
-            turnPower = -MAX_AUTO_TURN;
-        }
-
-        return turnPower;
+        return txError * AIM_KP;
     }
+
+    private double getCurrentAimTargetTx(LLResult result) {
+        if (result == null) return AIM_TARGET_TX;
+
+        double targetArea = result.getTa();
+        boolean farZone = targetArea >= 0 && targetArea < A1;
+
+        if (!farZone && hasTagRelativePose) {
+            return AIM_TARGET_TX + tagRelativeAimOffsetDeg;
+        }
+
+        return AIM_TARGET_TX;
+    }
+
+    private boolean isFarZone(double targetArea) {
+        return targetArea >= 0 && targetArea < A1;
+    }
+
     private void handleDrive(LLResult limelightResult) {
         double y  = -gamepad1.left_stick_y;
         double x  =  gamepad1.left_stick_x;
         double rx =  gamepad1.right_stick_x;
 
-        if (gamepad1.left_trigger > AUTO_AIM_TRIGGER_DEADBAND) {
+        if (gamepad1.left_trigger > AUTO_AIM_TRIGGER_DEADBAND && limelightResult != null) {
             rx = getAutoAimCorrection(limelightResult);
         }
 
@@ -289,8 +310,7 @@ public class SnailBotRed extends LinearOpMode {
 
     private double getDrivePowerModifier() {
         if (gamepad1.left_bumper) return 0.25;
-        if (gamepad1.right_bumper) return 1;
-        return .7;
+        return 1;
     }
 
     private void handleLauncherPower(double targetArea) {
@@ -488,142 +508,49 @@ public class SnailBotRed extends LinearOpMode {
         lastRB2 = gamepad2.right_bumper;
     }
 
-    private void calculateGoal() {
-
-        Pose2d pose = drive.localizer.getPose();
-
-        // Current robot position
-        double robotX = pose.position.x;
-        double robotY = pose.position.y;
-
-        // Goal position
-        double goalX = 70;
-        double goalY = -65;
-
-        // Delta to target
-        double dx = goalX - robotX;
-        double dy = goalY - robotY;
-
-        // Straight-line distance
-        goalDistance =
-                Math.sqrt((dx * dx) + (dy * dy));
-
-        // Angle robot SHOULD face toward target
-        double targetAngleRad = Math.atan2(dy, dx);
-        double targetAngleDeg = Math.toDegrees(targetAngleRad);
-
-        // Current robot heading
-        double robotHeadingDeg =
-                Math.toDegrees(pose.heading.toDouble());
-
-        // Difference between current heading and desired heading
-        headingErrorDeg =
-                targetAngleDeg - robotHeadingDeg;
-
-        // Normalize to [-180, 180]
-        while (headingErrorDeg > 180) {
-            headingErrorDeg -= 360;
-        }
-
-        while (headingErrorDeg < -180) {
-            headingErrorDeg += 360;
-        }
-
-        telemetry.addLine("==== GOAL TARGETING ====");
-
-        telemetry.addData("Goal X", "%.2f", goalX);
-        telemetry.addData("Goal Y", "%.2f", goalY);
-
-        telemetry.addData("Robot X", "%.2f", robotX);
-        telemetry.addData("Robot Y", "%.2f", robotY);
-
-        telemetry.addData("Delta X", "%.2f", dx);
-        telemetry.addData("Delta Y", "%.2f", dy);
-
-        telemetry.addData("Goal Distance", "%.2f", goalDistance);
-
-        telemetry.addData("Target Angle Deg", "%.2f", targetAngleDeg);
-
-        telemetry.addData("Robot Heading Deg", "%.2f", robotHeadingDeg);
-
-        telemetry.addData("Heading Error Deg", "%.2f", headingErrorDeg);
-    }
-
     private void updateTelemetry(LLResult limelightResult, double targetArea) {
-        telemetry.addData("Goal Distance", "%.2f", goalDistance);
-        telemetry.addData("Heading Error Deg", "%.2f", headingErrorDeg);
-        telemetry.addData("Goal Turn Power", "%.3f", getAutoAimCorrection(limelightResult));
-
-        telemetry.addLine("==== ROADRUNNER ====");
-
-        if (drive != null) {
-            Pose2d rrPose = drive.localizer.getPose();
-
-            telemetry.addData("RR X", "%.2f", rrPose.position.x);
-            telemetry.addData("RR Y", "%.2f", rrPose.position.y);
-            telemetry.addData(
-                    "RR Heading Deg",
-                    "%.2f",
-                    Math.toDegrees(rrPose.heading.toDouble())
-            );
-        } else {
-            telemetry.addData("RR X", "N/A");
-            telemetry.addData("RR Y", "N/A");
-            telemetry.addData("RR Heading Deg", "N/A");
-        }
-
-        telemetry.addLine("==== LIMELIGHT ====");
 
         boolean targetVisible = limelightResult != null;
+        boolean farZone = isFarZone(targetArea);
+
+        telemetry.addLine("==== LIMELIGHT AIM ====");
         telemetry.addData("Limelight Target", targetVisible ? "FOUND" : "NOT FOUND");
 
         if (targetVisible) {
             telemetry.addData("tx", "%.2f", limelightResult.getTx());
             telemetry.addData("ty", "%.2f", limelightResult.getTy());
-            telemetry.addData("Target Area / Tag Size", "%.3f", targetArea);
+            telemetry.addData("Target Area", "%.3f", targetArea);
+
+            telemetry.addData("Robot X From Tag", "%.3f", robotXFromTag);
+            telemetry.addData("Robot Y From Tag", "%.3f", robotYFromTag);
+            telemetry.addData("Has Tag Relative Pose", hasTagRelativePose);
+
+            telemetry.addData("Raw Compensation Deg", "%.2f", tagRelativeAimOffsetDeg);
+
+            if (farZone) {
+                telemetry.addData("Applied Compensation Deg", "%.2f", 0.0);
+                telemetry.addData("Aim Zone", "FAR - compensation disabled");
+            } else {
+                telemetry.addData("Applied Compensation Deg", "%.2f",
+                        hasTagRelativePose ? tagRelativeAimOffsetDeg : 0.0);
+                telemetry.addData("Aim Zone", "NORMAL - compensation active");
+            }
+
+            telemetry.addData("Aim Target TX", "%.2f", getCurrentAimTargetTx(limelightResult));
             telemetry.addData("Auto Aim Correction", "%.3f", getAutoAimCorrection(limelightResult));
 
-            if (targetArea >= 0 && targetArea < A1) {
-                telemetry.addData("Aim Zone", "FAR - shifted right");
-                telemetry.addData("Aim Target TX", "%.2f", FAR_AIM_TARGET_TX);
-            } else {
-                telemetry.addData("Aim Zone", "NORMAL");
-                telemetry.addData("Aim Target TX", "%.2f", AIM_TARGET_TX);
-            }
         } else {
             telemetry.addData("tx", "N/A");
             telemetry.addData("ty", "N/A");
-            telemetry.addData("Target Area / Tag Size", "N/A");
-            telemetry.addData("Auto Aim Correction", "N/A");
-            telemetry.addData("Aim Zone", "N/A");
+            telemetry.addData("Target Area", "N/A");
+            telemetry.addData("Robot X From Tag", "N/A");
+            telemetry.addData("Robot Y From Tag", "N/A");
+            telemetry.addData("Raw Compensation Deg", "N/A");
+            telemetry.addData("Applied Compensation Deg", "N/A");
             telemetry.addData("Aim Target TX", "N/A");
+            telemetry.addData("Auto Aim Correction", "N/A");
         }
 
-        telemetry.addLine("==== LAUNCHER ====");
-
-        telemetry.addData("ZoneVel Base + Trim(tps)", "%.0f", zoneVelOut);
-        telemetry.addData("Launch Velocity Trim", "%.0f", launchVelocityTrim);
-        telemetry.addData("FinalVel(tps)", "%.0f", finalVelOut);
-        telemetry.addData("LeftVel(tps)", "%.0f", leftVelOut);
-        telemetry.addData("RightVel(tps)", "%.0f", rightVelOut);
-
-        telemetry.addLine("==== SPINDLE ====");
-
-        telemetry.addData("Spindle Mode", spindleMode);
-        telemetry.addData("Spindle Current (ticks)", "%d", spindle.getCurrentPosition());
-        telemetry.addData("Spindle Target  (ticks)", "%d", spindle.getTargetPosition());
-
-        telemetry.addLine("==== INTAKE / COLOR ====");
-
-        telemetry.addData("Artifact Count", artifactCount);
-        telemetry.addData("Artifact Detected", artifactWasDetected);
-        telemetry.addData("Left Distance cm", "%.1f", intakeDistanceLeft.getDistance(DistanceUnit.CM));
-        telemetry.addData("Right Distance cm", "%.1f", intakeDistanceRight.getDistance(DistanceUnit.CM));
-
-        telemetry.addLine("==== DRIVE ====");
-
-        telemetry.addData("Drive Power", getDrivePowerModifier());
-
-        telemetry.update();
-    }
+        telemetry.addLine("==== ROBOT ====");
+        telemetry.addData("Drive Power", getDrivePowerModifier());}
 }
