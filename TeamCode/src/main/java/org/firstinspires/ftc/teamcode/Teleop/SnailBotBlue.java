@@ -3,8 +3,6 @@ package org.firstinspires.ftc.teamcode.Teleop;
 import android.graphics.Color;
 
 import com.acmerobotics.roadrunner.Pose2d;
-import com.acmerobotics.roadrunner.Vector2d;
-import com.acmerobotics.roadrunner.ftc.Actions;
 import com.qualcomm.hardware.limelightvision.LLResult;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
@@ -14,14 +12,12 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DistanceSensor;
 import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
 import com.qualcomm.robotcore.hardware.NormalizedRGBA;
-import com.qualcomm.robotcore.hardware.TouchSensor;
-import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.teamcode.MecanumDrive;
 
-@TeleOp(name = "Snail Bot Red", group = "TeleOp")
-public class SnailBotRed extends LinearOpMode {
+@TeleOp(name = "Snail Bot Blue", group = "TeleOp")
+public class SnailBotBlue extends LinearOpMode {
 
     private DcMotor frontLeft, frontRight, backLeft, backRight;
     private DcMotor intake;
@@ -30,8 +26,11 @@ public class SnailBotRed extends LinearOpMode {
 
     private Limelight3A limelight;
 
+    private NormalizedColorSensor intakeSensorLeft, intakeSensorRight;
+    private DistanceSensor intakeDistanceLeft, intakeDistanceRight;
 
-    private TouchSensor intakeTouch;
+    private final float[] leftHsv = new float[3];
+    private final float[] rightHsv = new float[3];
 
     private int launcherDirection = 1;
 
@@ -55,9 +54,11 @@ public class SnailBotRed extends LinearOpMode {
     private static final double V_NEAR = 730 * Ratio;
 
     private static final double NO_TAG_BASE_VELOCITY = 750 * Ratio;
+    private static final double VELOCITY_TRIM_STEP = 25;
+    private double launchVelocityTrim = 0;
 
     private static final int SPINDLE_OPEN   = 140;
-    private static final int SPINDLE_1BALL  = 35;
+    private static final int SPINDLE_1BALL  = 50;
     private static final int SPINDLE_2BALL  = 10;
 
     private static final int SPINDLE_LAUNCH_1 = -75;
@@ -111,19 +112,8 @@ public class SnailBotRed extends LinearOpMode {
     private double headingErrorDeg = 0.0;
     private double goalDistance = 0.0;
 
-    private static final double GOAL_AIM_KP = 0.035;
-    private static final double MAX_AUTO_TURN = 0.5;
-
-    private final ElapsedTime artifactTimer = new ElapsedTime();
-    private final ElapsedTime openIgnoreTimer = new ElapsedTime();
-
-    private static final double ARTIFACT_COUNT_COOLDOWN = 0.10;
-    private static final double OPEN_DETECTION_DEADBAND = 0.25;
-
-    private boolean lastA1 = false;
-
-    private boolean lastB1 = false;
-
+    private static final double GOAL_AIM_KP = 0.0275;
+    private static final double MAX_AUTO_TURN = 0.35;
 
     private MecanumDrive drive;
 
@@ -138,42 +128,9 @@ public class SnailBotRed extends LinearOpMode {
 
         waitForStart();
 
-        artifactTimer.reset();
-        openIgnoreTimer.reset();
-
         while (opModeIsActive()) {
 
             drive.updatePoseEstimate();
-
-
-
-            boolean a1Pressed = gamepad1.a && !lastA1;
-            boolean b1Pressed = gamepad1.b && !lastB1;
-
-            if (a1Pressed) {
-                Actions.runBlocking(
-                        drive.actionBuilder(drive.localizer.getPose())
-                                .strafeToLinearHeading(
-                                        new Vector2d(-39.2, 31.33),
-                                        Math.toRadians(0)
-                                )
-                                .build()
-                );
-            }
-
-            if (b1Pressed) {
-                Actions.runBlocking(
-                        drive.actionBuilder(drive.localizer.getPose())
-                                .strafeToLinearHeading(
-                                        new Vector2d(-52.33, -1.33),
-                                        Math.toRadians(-28.75)
-                                )
-                                .build()
-                );
-            }
-
-            lastA1 = gamepad1.a;
-            lastB1 = gamepad1.b;
 
             LLResult limelightResult = getLimelightResult();
             double targetArea = getTargetArea(limelightResult);
@@ -206,7 +163,11 @@ public class SnailBotRed extends LinearOpMode {
         launcherLeft = hardwareMap.get(DcMotorEx.class, "launcherLeft");
         launcherRight = hardwareMap.get(DcMotorEx.class, "launcherRight");
 
-        intakeTouch = hardwareMap.get(TouchSensor.class, "TouchSensor");
+        intakeSensorLeft = hardwareMap.get(NormalizedColorSensor.class, "ColorSensorLeft");
+        intakeDistanceLeft = hardwareMap.get(DistanceSensor.class, "ColorSensorLeft");
+
+        intakeSensorRight = hardwareMap.get(NormalizedColorSensor.class, "ColorSensorRight");
+        intakeDistanceRight = hardwareMap.get(DistanceSensor.class, "ColorSensorRight");
 
         launcherLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         launcherRight.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -226,7 +187,7 @@ public class SnailBotRed extends LinearOpMode {
         spindle.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         limelight = hardwareMap.get(Limelight3A.class, "limelight");
-        limelight.pipelineSwitch(2);
+        limelight.pipelineSwitch(1);
         limelight.start();
 
         drive = new MecanumDrive(
@@ -250,6 +211,25 @@ public class SnailBotRed extends LinearOpMode {
         return result.getTa();
     }
 
+    private double pickVelocityFromTargetArea(double targetArea) {
+        double baseVelocity;
+
+        if (targetArea < 0) {
+            baseVelocity = NO_TAG_BASE_VELOCITY;
+        } else if (targetArea < A1) {
+            baseVelocity = V_FAR;
+        } else if (targetArea < A2) {
+            baseVelocity = V_MID1;
+        } else if (targetArea < A3) {
+            baseVelocity = V_MID2;
+        } else if (targetArea < A4) {
+            baseVelocity = V_MID3;
+        } else {
+            baseVelocity = V_NEAR;
+        }
+
+        return Math.max(0, baseVelocity + launchVelocityTrim);
+    }
     private double getAutoAimCorrection(LLResult result) {
 
         double error = -headingErrorDeg;
@@ -314,9 +294,14 @@ public class SnailBotRed extends LinearOpMode {
     }
 
     private void handleLauncherPower(double targetArea) {
-        if (gamepad2.dpad_up) {
-            return;
-        }
+        boolean upPressed = gamepad2.dpad_up && !lastDpadUp;
+        boolean downPressed = gamepad2.dpad_down && !lastDpadDown;
+
+        if (upPressed) launchVelocityTrim += VELOCITY_TRIM_STEP;
+        if (downPressed) launchVelocityTrim -= VELOCITY_TRIM_STEP;
+
+        lastDpadUp = gamepad2.dpad_up;
+        lastDpadDown = gamepad2.dpad_down;
 
         if (gamepad2.dpad_left) {
             launcherDirection = -1;
@@ -347,6 +332,8 @@ public class SnailBotRed extends LinearOpMode {
         double velocity = 566.1367 * Math.pow(distance, 0.3105518);
 
 
+        velocity += launchVelocityTrim;
+
         return Math.max(0, velocity);
     }
     private void setSpindleTarget(int targetTicks, SpindleMode mode) {
@@ -357,22 +344,62 @@ public class SnailBotRed extends LinearOpMode {
 
     private void handleArtifactSensorSpindle() {
 
-        boolean detected = intakeTouch.isPressed();
+        double leftDistance = intakeDistanceLeft.getDistance(DistanceUnit.CM);
+        double rightDistance = intakeDistanceRight.getDistance(DistanceUnit.CM);
 
-        boolean allowedToCount =
-                openIgnoreTimer.seconds() >= OPEN_DETECTION_DEADBAND &&
-                        artifactTimer.seconds() >= ARTIFACT_COUNT_COOLDOWN;
+        boolean leftCloseEnough =
+                !Double.isNaN(leftDistance) &&
+                        leftDistance <= COLOR_CAP_CM;
 
-        if (detected && !artifactWasDetected && allowedToCount) {
+        boolean rightCloseEnough =
+                !Double.isNaN(rightDistance) &&
+                        rightDistance <= COLOR_CAP_CM;
+
+        String leftResult = "TOO FAR";
+        String rightResult = "TOO FAR";
+
+        if (leftCloseEnough) {
+            leftResult = classifyColor(
+                    intakeSensorLeft,
+                    intakeDistanceLeft,
+                    leftHsv
+            );
+        }
+
+        if (rightCloseEnough) {
+            rightResult = classifyColor(
+                    intakeSensorRight,
+                    intakeDistanceRight,
+                    rightHsv
+            );
+        }
+
+        boolean detected =
+                leftResult.equals("GREEN") ||
+                        leftResult.equals("PURPLE") ||
+                        rightResult.equals("GREEN") ||
+                        rightResult.equals("PURPLE");
+
+        if (detected && !artifactWasDetected) {
 
             artifactCount++;
-            artifactTimer.reset();
 
             if (artifactCount == 1) {
-                setSpindleTarget(SPINDLE_1BALL, SpindleMode.ONE_BALL);
+
+                setSpindleTarget(
+                        SPINDLE_1BALL,
+                        SpindleMode.ONE_BALL
+                );
+
                 launchStage = -1;
+
             } else if (artifactCount == 2) {
-                setSpindleTarget(SPINDLE_2BALL, SpindleMode.TWO_BALL);
+
+                setSpindleTarget(
+                        SPINDLE_2BALL,
+                        SpindleMode.TWO_BALL
+                );
+
                 launchStage = -1;
             }
         }
@@ -381,9 +408,9 @@ public class SnailBotRed extends LinearOpMode {
 
         if (gamepad2.b) {
             artifactCount = 0;
-            artifactWasDetected = false;
         }
     }
+
     private String classifyColor(
             NormalizedColorSensor color,
             DistanceSensor distance,
@@ -418,10 +445,7 @@ public class SnailBotRed extends LinearOpMode {
     }
 
     private void handleIntake() {
-        if (gamepad2.dpad_up) {
-            return;
-        }
-        double stick = -gamepad2.left_stick_y;
+        double stick = -gamepad2.left_stick_y * .6;
 
         if (launcherPrimed) {
             if (Math.abs(stick) > INTAKE_DEADBAND) {
@@ -439,80 +463,31 @@ public class SnailBotRed extends LinearOpMode {
             intake.setPower(stick * INTAKE_NORMAL_POWER);
         }
     }
+
     private void handleSpindle() {
-
-        // Manual override
-        if (gamepad2.dpad_up) {
-
-            // Spindle reverse override
-            spindle.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-            spindle.setPower(1.0);
-
-            // Intake reverse
-            intake.setPower(-1.0);
-
-            // Launcher reverse
-            launcherLeft.setPower(1.0);
-            launcherRight.setPower(1.0);
-
-            return;
-        }
-
-        // Return to position hold after override released
-        if (spindle.getMode() != DcMotor.RunMode.RUN_TO_POSITION) {
-            spindle.setTargetPosition(spindle.getCurrentPosition());
-            spindle.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-            spindle.setPower(SPINDLE_POWER);
-        }
-
         boolean aPressed  = gamepad2.a && !lastA2;
         boolean bPressed  = gamepad2.b && !lastB2;
         boolean xPressed  = gamepad2.x && !lastX2;
         boolean rbPressed = gamepad2.right_bumper && !lastRB2;
 
         if (bPressed) {
-
             setSpindleTarget(SPINDLE_OPEN, SpindleMode.OPEN);
             launchStage = -1;
-
-            artifactCount = 0;
-            artifactWasDetected = false;
-            openIgnoreTimer.reset();
-
         } else if (aPressed) {
-
             setSpindleTarget(SPINDLE_1BALL, SpindleMode.ONE_BALL);
             launchStage = -1;
-
         } else if (xPressed) {
-
             setSpindleTarget(SPINDLE_2BALL, SpindleMode.TWO_BALL);
             launchStage = -1;
-
         } else if (rbPressed) {
-
-            launchStage++;
+            launchStage = (launchStage + 1) % 3;
 
             if (launchStage == 0) {
-
-                setSpindleTarget(
-                        SPINDLE_LAUNCH_1,
-                        SpindleMode.LAUNCH_1
-                );
-
+                setSpindleTarget(SPINDLE_LAUNCH_1, SpindleMode.LAUNCH_1);
             } else if (launchStage == 1) {
-
-                setSpindleTarget(
-                        SPINDLE_LAUNCH_2,
-                        SpindleMode.LAUNCH_2
-                );
-
+                setSpindleTarget(SPINDLE_LAUNCH_2, SpindleMode.LAUNCH_2);
             } else {
-
-                setSpindleTarget(
-                        SPINDLE_LAUNCH_3,
-                        SpindleMode.LAUNCH_3
-                );
+                setSpindleTarget(SPINDLE_LAUNCH_3, SpindleMode.LAUNCH_3);
             }
         }
 
@@ -533,7 +508,7 @@ public class SnailBotRed extends LinearOpMode {
         // First calculate distance using FAR target
         // so we can decide which aim point to use
         double farGoalX = 70;
-        double goalY = -65;
+        double goalY = 65;
 
         double farDx = farGoalX - robotX;
         double farDy = goalY - robotY;
@@ -657,6 +632,7 @@ public class SnailBotRed extends LinearOpMode {
         telemetry.addLine("==== LAUNCHER ====");
 
         telemetry.addData("ZoneVel Base + Trim(tps)", "%.0f", zoneVelOut);
+        telemetry.addData("Launch Velocity Trim", "%.0f", launchVelocityTrim);
         telemetry.addData("FinalVel(tps)", "%.0f", finalVelOut);
         telemetry.addData("LeftVel(tps)", "%.0f", leftVelOut);
         telemetry.addData("RightVel(tps)", "%.0f", rightVelOut);
@@ -671,7 +647,9 @@ public class SnailBotRed extends LinearOpMode {
 
         telemetry.addData("Artifact Count", artifactCount);
         telemetry.addData("Artifact Detected", artifactWasDetected);
-        telemetry.addData("Touch Pressed", intakeTouch.isPressed());
+        telemetry.addData("Left Distance cm", "%.1f", intakeDistanceLeft.getDistance(DistanceUnit.CM));
+        telemetry.addData("Right Distance cm", "%.1f", intakeDistanceRight.getDistance(DistanceUnit.CM));
+
         telemetry.addLine("==== DRIVE ====");
 
         telemetry.addData("Drive Power", getDrivePowerModifier());
