@@ -19,18 +19,19 @@ import com.qualcomm.robotcore.hardware.TouchSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.MecanumDrive;
+import org.firstinspires.ftc.teamcode.Teleop.PoseStorage;
 
 import java.util.Arrays;
 
 @Autonomous
 public class BlueFront12BallDump extends LinearOpMode {
-    private static final int SPINDLE_OPEN   = 140;
+    private static final int SPINDLE_OPEN   = 152;
     private static final int SPINDLE_1BALL  = 50;
-    private static final int SPINDLE_2BALL  = 12;
+    private static final int SPINDLE_2BALL  = 25;
 
-    private static final int SPINDLE_LAUNCH_1 = -75;
-    private static final int SPINDLE_LAUNCH_2 = -250;
-    private static final int SPINDLE_LAUNCH_3 = -340;
+    private static final int SPINDLE_LAUNCH_1 = -65;
+    private static final int SPINDLE_LAUNCH_2 = -240;
+    private static final int SPINDLE_LAUNCH_3 = -330;
 
     private static final double SPINDLE_POWER = 1.0;
 
@@ -77,8 +78,10 @@ public class BlueFront12BallDump extends LinearOpMode {
         spindle.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         spindle.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        spindle.setTargetPosition(0);
+        spindle.setTargetPosition(SPINDLE_2BALL);
         spindle.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        spindle.setPower(1);
+        sleep(500);
         spindle.setPower(0);
 
         TouchSensor intakeTouch = hardwareMap.get(TouchSensor.class, "TouchSensor");
@@ -202,6 +205,8 @@ public class BlueFront12BallDump extends LinearOpMode {
                         .strafeToLinearHeading(new Vector2d(-13.5, 55), Math.toRadians(70))
                         .build()
         );
+        drive.updatePoseEstimate();
+        PoseStorage.currentPose = drive.localizer.getPose();
     }
 
     public static class AutoIntake implements Action {

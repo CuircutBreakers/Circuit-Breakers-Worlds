@@ -24,14 +24,16 @@ import org.firstinspires.ftc.teamcode.Teleop.PoseStorage;
 import java.util.Arrays;
 
 @Autonomous
-public class BlueFront12Ball extends LinearOpMode {
-    private static final int SPINDLE_OPEN   = 140;
-    private static final int SPINDLE_1BALL  = 50;
-    private static final int SPINDLE_2BALL  = 12;
+public class RedFront12BallDump extends LinearOpMode {
+    private static final int SPINDLE_OPEN   = 154;
+    private static final int SPINDLE_OPEN_WIDE   = 160;
 
-    private static final int SPINDLE_LAUNCH_1 = -75;
-    private static final int SPINDLE_LAUNCH_2 = -250;
-    private static final int SPINDLE_LAUNCH_3 = -340;
+    private static final int SPINDLE_1BALL  = 52;
+    private static final int SPINDLE_2BALL  = 27;
+
+    private static final int SPINDLE_LAUNCH_1 = -65;
+    private static final int SPINDLE_LAUNCH_2 = -240;
+    private static final int SPINDLE_LAUNCH_3 = -330;
 
     private static final double SPINDLE_POWER = 1.0;
 
@@ -59,7 +61,7 @@ public class BlueFront12Ball extends LinearOpMode {
 
         MecanumDrive drive = new MecanumDrive(
                 hardwareMap,
-                new Pose2d(45, 51, Math.toRadians(48))
+                new Pose2d(45, -51, Math.toRadians(-53))
         );
 
         DcMotor intake = hardwareMap.get(DcMotor.class, "intake");
@@ -78,8 +80,10 @@ public class BlueFront12Ball extends LinearOpMode {
         spindle.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         spindle.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        spindle.setTargetPosition(0);
+        spindle.setTargetPosition(SPINDLE_2BALL);
         spindle.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        spindle.setPower(1);
+        sleep(500);
         spindle.setPower(0);
 
         TouchSensor intakeTouch = hardwareMap.get(TouchSensor.class, "TouchSensor");
@@ -87,11 +91,11 @@ public class BlueFront12Ball extends LinearOpMode {
         waitForStart();
 
         Actions.runBlocking(
-                drive.actionBuilder(new Pose2d(45, 51, Math.toRadians(48)))
+                drive.actionBuilder(drive.localizer.getPose())
 
                         .stopAndAdd(new PrimeLaunchers(launcherLeft, launcherRight, 2150))
                         .stopAndAdd(new Intake(intake, 0.4))
-                        .strafeToLinearHeading(new Vector2d(0, 13), Math.toRadians(37))
+                        .strafeToLinearHeading(new Vector2d(10, -11), Math.toRadians(-45))
 
                         .stopAndAdd(new Launch(spindle, 1))
                         .waitSeconds(.4)
@@ -100,11 +104,11 @@ public class BlueFront12Ball extends LinearOpMode {
                         .stopAndAdd(new Launch(spindle, 3))
                         .waitSeconds(0.5)
 
-                        .afterTime(0, new Spindle(spindle, 1))
+                        .afterTime(0, new Spindle(spindle, 2))
                         .stopAndAdd(new PrimeLaunchers(launcherLeft, launcherRight, 0))
 
                         //middle spike mark
-                        .strafeToLinearHeading(new Vector2d(-15, 30), Math.toRadians(90))
+                        .strafeToLinearHeading(new Vector2d(-15, -17), Math.toRadians(-90))
 
                         .afterDisp(0, new AutoIntake(
                                 intake,
@@ -115,11 +119,15 @@ public class BlueFront12Ball extends LinearOpMode {
                                 .75,
                                 4.0
                         ))
-                        .strafeToLinearHeading(new Vector2d(-15, 54.5), Math.toRadians(90))
+                        .strafeToLinearHeading(new Vector2d(-15, -44.5), Math.toRadians(-90))
+                        .strafeToLinearHeading(new Vector2d(-15, -50), Math.toRadians(-90))
+                        .waitSeconds(.2)
+                        .strafeToLinearHeading(new Vector2d(-15, -40), Math.toRadians(-45))
                         .afterTime(0, new Intake(intake,.6))
-                        .afterTime(0, new Spindle(spindle, 3))
-                        .afterTime(.5,new PrimeLaunchers(launcherLeft, launcherRight, 2150))
-                        .strafeToLinearHeading(new Vector2d(0, 13), Math.toRadians(37))
+                        .afterTime(0, new Spindle(spindle, 4))
+                        .afterTime(0,new PrimeLaunchers(launcherLeft, launcherRight, -100))
+                        .afterTime(1,new PrimeLaunchers(launcherLeft, launcherRight, 2150))
+                        .strafeToLinearHeading(new Vector2d(10, -11), Math.toRadians(-45))
 
                         .stopAndAdd(new Launch(spindle, 1))
                         .waitSeconds(.25)
@@ -128,14 +136,11 @@ public class BlueFront12Ball extends LinearOpMode {
                         .stopAndAdd(new Launch(spindle, 3))
                         .waitSeconds(.5)
 
-                        .afterTime(0, new Spindle(spindle, 1))
+                        .afterTime(0, new Spindle(spindle, 2))
                         .stopAndAdd(new PrimeLaunchers(launcherLeft, launcherRight, 0))
 
 
                         //recycle------------------------
-
-
-                        .strafeToLinearHeading(new Vector2d(-13.5, 55), Math.toRadians(70))
                         .afterDisp(0, new BlueFrontRecycleTest.AutoIntake(
                                 intake,
                                 spindle,
@@ -143,17 +148,18 @@ public class BlueFront12Ball extends LinearOpMode {
                                 2,
                                 .7,
                                 .7,
-                                4.0
+                                8.0
                         ))
-                        .strafeToLinearHeading(new Vector2d(-13.5, 62.5), Math.toRadians(70))
+                        .strafeToLinearHeading(new Vector2d(-9, -20), Math.toRadians(-70))
+                        .strafeToLinearHeading(new Vector2d(-18, -54), Math.toRadians(-70))
                         .waitSeconds(1)
-                        .strafeToLinearHeading(new Vector2d(-11.5, 62), Math.toRadians(66))
-                        .strafeToLinearHeading(new Vector2d(-13.5, 57), Math.toRadians(90))
+                        .strafeToLinearHeading(new Vector2d(-17.5, -49), Math.toRadians(-70))
                         .afterTime(0, new BlueFrontRecycleTest.Intake(intake,.6))
-                        .afterTime(0, new BlueFrontRecycleTest.Spindle(spindle, 3))
+
                         .afterTime(0,new BlueFrontRecycleTest.PrimeLaunchers(launcherLeft, launcherRight, -100))
-                        .afterTime(.75,new BlueFrontRecycleTest.PrimeLaunchers(launcherLeft, launcherRight, 2150))
-                        .strafeToLinearHeading(new Vector2d(0, 13), Math.toRadians(37))
+                        .afterTime(1.75,new BlueFrontRecycleTest.PrimeLaunchers(launcherLeft, launcherRight, 2100))
+                        .strafeToLinearHeading(new Vector2d(-17.5, -40), Math.toRadians(-45))
+                        .strafeToLinearHeading(new Vector2d(10, -11), Math.toRadians(-45))
 
                         .stopAndAdd(new BlueFrontRecycleTest.Launch(spindle, 1))
                         .waitSeconds(.25)
@@ -162,30 +168,28 @@ public class BlueFront12Ball extends LinearOpMode {
                         .stopAndAdd(new BlueFrontRecycleTest.Launch(spindle, 3))
                         .waitSeconds(.5)
 
-                        .afterTime(0, new BlueFrontRecycleTest.Spindle(spindle, 1))
+                        .afterTime(0, new BlueFrontRecycleTest.Spindle(spindle, 2))
                         .stopAndAdd(new BlueFrontRecycleTest.PrimeLaunchers(launcherLeft, launcherRight, 0))
 
-                        .waitSeconds(.5)
+                        .waitSeconds(1.5)
                         // goal spike mark-------------------
-
-
-                        .strafeToLinearHeading(new Vector2d(10, 28), Math.toRadians(90))
+                        .strafeToLinearHeading(new Vector2d(9, -20), Math.toRadians(-90))
 
                         .afterDisp(0, new AutoIntake(
                                 intake,
                                 spindle,
                                 intakeTouch,
                                 2,
-                                        .75,
-                                        .75,
+                                1,
+                                1,
                                 4.0
                         ))
-                        .strafeToLinearHeading(new Vector2d(10, 52), Math.toRadians(90))
+                        .strafeToLinearHeading(new Vector2d(8, -50), Math.toRadians(-90))
                         .afterTime(0, new Intake(intake,.6))
-                        .afterTime(0, new Spindle(spindle, 3))
+                        .afterTime(0, new Spindle(spindle, 4))
                         .afterTime(0,new PrimeLaunchers(launcherLeft, launcherRight, -100))
                         .afterTime(.75,new PrimeLaunchers(launcherLeft, launcherRight, 2000))
-                        .strafeToLinearHeading(new Vector2d(20, 20), Math.toRadians(45))
+                        .strafeToLinearHeading(new Vector2d(12, -20), Math.toRadians(-40))
 
                         .stopAndAdd(new Launch(spindle, 1))
                         .waitSeconds(.25)
@@ -194,11 +198,11 @@ public class BlueFront12Ball extends LinearOpMode {
                         .stopAndAdd(new Launch(spindle, 3))
                         .waitSeconds(.5)
 
-                        .afterTime(0, new Spindle(spindle, 1))
+                        .afterTime(0, new Spindle(spindle, 2))
                         .stopAndAdd(new PrimeLaunchers(launcherLeft, launcherRight, 0))
 
 
-                        .strafeToLinearHeading(new Vector2d(-13.5, 55), Math.toRadians(70))
+                        .strafeToLinearHeading(new Vector2d(-15.5, -45), Math.toRadians(-70))
                         .build()
         );
         drive.updatePoseEstimate();
@@ -337,13 +341,16 @@ public class BlueFront12Ball extends LinearOpMode {
 
         @Override
         public boolean run(@NonNull TelemetryPacket telemetryPacket) {
-            if (position == 1) {
-                spindle.setTargetPosition(SPINDLE_OPEN);
+            if (position == 1){
+                spindle.setTargetPosition(SPINDLE_OPEN_WIDE);
             }
             if (position == 2) {
-                spindle.setTargetPosition(SPINDLE_1BALL);
+                spindle.setTargetPosition(SPINDLE_OPEN);
             }
             if (position == 3) {
+                spindle.setTargetPosition(SPINDLE_1BALL);
+            }
+            if (position == 4) {
                 spindle.setTargetPosition(SPINDLE_2BALL);
             }
 
