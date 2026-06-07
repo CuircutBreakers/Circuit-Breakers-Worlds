@@ -169,7 +169,7 @@ public class BlueFront12BallDump extends LinearOpMode {
                         .afterTime(0, new BlueFrontRecycleTest.Spindle(spindle, 1))
                         .stopAndAdd(new BlueFrontRecycleTest.PrimeLaunchers(launcherLeft, launcherRight, 0))
 
-                        .waitSeconds(.5)
+                        .waitSeconds(.6)
                         // goal spike mark-------------------
 
 
